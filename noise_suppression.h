@@ -59,39 +59,33 @@
 #define B_LIM               (float)0.5  // threshold in final energy gain factor calculation
 
 
+#include <assert.h>
+// If you for some reson need to know if DCHECKs are on, test the value of
+// RTC_DCHECK_IS_ON. (Test its value, not if it's defined; it'll always be
+// defined, to either a true or a false value.)
+#if !defined(NDEBUG) || defined(DCHECK_ALWAYS_ON)
+#define RTC_DCHECK_IS_ON 1
+#else
+#define RTC_DCHECK_IS_ON 0
+#endif
+
+
+// C version. Lacks many features compared to the C++ version, but usage
+// guidelines are the same.
+
+#define RTC_DCHECK(condition)   assert(condition)
+#define RTC_DCHECK_EQ(a, b) RTC_DCHECK((a) == (b))
+#define RTC_DCHECK_LE(a, b) RTC_DCHECK((a) <= (b))
+#define RTC_DCHECK_LT(a, b) RTC_DCHECK((a) < (b))
+
 #define WEBRTC_SPL_MIN(A, B)        ((A) < (B) ? (A) : (B))  // Get min value
-#define WEBRTC_SPL_MAX(A, B)        ((A) > (B) ? (A) : (B))  // Get max value
 
 // Macros specific for the fixed point implementation
 #define WEBRTC_SPL_WORD16_MAX       32767
 #define WEBRTC_SPL_WORD16_MIN       (-32768)
-#define WEBRTC_SPL_UMUL(a, b) \
-    ((uint32_t) ((uint32_t)(a) * (uint32_t)(b)))
 
-// For MIPS platforms, these are inline functions in spl_inl_mips.h
-#define WEBRTC_SPL_MUL_16_16(a, b) \
-    ((int32_t) (((int16_t)(a)) * ((int16_t)(b))))
 
-#define WEBRTC_SPL_UMUL_32_16(a, b) \
-    ((uint32_t) ((uint32_t)(a) * (uint16_t)(b)))
-#define WEBRTC_SPL_MUL_16_U16(a, b) \
-    ((int32_t)(int16_t)(a) * (uint16_t)(b))
-
-#define WEBRTC_SPL_ABS_W16(a) \
-    (((int16_t)(a) >= 0) ? ((int16_t)(a)) : -((int16_t)(a)))
-#define WEBRTC_SPL_MUL_16_16_RSFT_WITH_ROUND(a, b, c) \
-    ((WEBRTC_SPL_MUL_16_16(a, b) + ((int32_t) \
-                                  (((int32_t)1) << ((c) - 1)))) >> (c))
-#define WEBRTC_SPL_ABS_W32(a) \
-    (((int32_t)(a) >= 0) ? ((int32_t)(a)) : -((int32_t)(a)))
-
-#define WEBRTC_SPL_MUL(a, b) \
-    ((int32_t) ((int32_t)(a) * (int32_t)(b)))
 #define WEBRTC_SPL_SAT(a, b, c)         ((b) > (a) ? (a) : (b) < (c) ? (c) : (b))
-
-// Shifting with negative numbers allowed
-// Positive means left shift
-#define WEBRTC_SPL_SHIFT_W32(x, c) ((c) >= 0 ? (x) * (1 << (c)) : (x) >> -(c))
 
 
 typedef struct NsHandleT NsHandle;
