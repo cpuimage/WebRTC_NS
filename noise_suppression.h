@@ -60,32 +60,6 @@
 
 
 #include <assert.h>
-// If you for some reson need to know if DCHECKs are on, test the value of
-// RTC_DCHECK_IS_ON. (Test its value, not if it's defined; it'll always be
-// defined, to either a true or a false value.)
-#if !defined(NDEBUG) || defined(DCHECK_ALWAYS_ON)
-#define RTC_DCHECK_IS_ON 1
-#else
-#define RTC_DCHECK_IS_ON 0
-#endif
-
-
-// C version. Lacks many features compared to the C++ version, but usage
-// guidelines are the same.
-
-#define RTC_DCHECK(condition)   assert(condition)
-#define RTC_DCHECK_EQ(a, b) RTC_DCHECK((a) == (b))
-#define RTC_DCHECK_LE(a, b) RTC_DCHECK((a) <= (b))
-#define RTC_DCHECK_LT(a, b) RTC_DCHECK((a) < (b))
-
-#define WEBRTC_SPL_MIN(A, B)        ((A) < (B) ? (A) : (B))  // Get min value
-
-// Macros specific for the fixed point implementation
-#define WEBRTC_SPL_WORD16_MAX       32767
-#define WEBRTC_SPL_WORD16_MIN       (-32768)
-
-
-#define WEBRTC_SPL_SAT(a, b, c)         ((b) > (a) ? (a) : (b) < (c) ? (c) : (b))
 
 
 typedef struct NsHandleT NsHandle;

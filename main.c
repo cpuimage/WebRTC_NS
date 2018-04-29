@@ -11,6 +11,10 @@
 #define nullptr 0
 #endif
 
+#ifndef MIN
+#define MIN(A, B)        ((A) < (B) ? (A) : (B))
+#endif
+
 //写wav文件
 void wavWrite_int16(char *filename, int16_t *buffer, size_t sampleRate, size_t totalSampleCount) {
     drwav_data_format format = {};
@@ -129,7 +133,7 @@ void FloatToS16(const float *src, size_t size, int16_t *dest) {
 int nsProcess(int16_t *buffer, size_t sampleRate, int samplesCount, enum nsLevel level) {
     if (buffer == nullptr) return -1;
     if (samplesCount == 0) return -1;
-    size_t samples = WEBRTC_SPL_MIN(160, sampleRate / 100);
+    size_t samples = MIN(160, sampleRate / 100);
     if (samples == 0) return -1;
     const int maxSamples = 320;
     int num_bands = 1;

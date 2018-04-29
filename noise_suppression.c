@@ -14,6 +14,10 @@
 #include <math.h>
 #include <stdlib.h>
 
+#ifndef SPL_SAT
+#define SPL_SAT(a, b, c)         ((b) > (a) ? (a) : (b) < (c) ? (c) : (b))
+#endif
+
 // hybrib Hanning & flat window
 static const float kBlocks80w128[128] = {
         (float) 0.00000000, (float) 0.03271908, (float) 0.06540313, (float) 0.09801714, (float) 0.13052619,
@@ -1990,7 +1994,7 @@ static void UpdateBuffer(const float *frame,
                          size_t frame_length,
                          size_t buffer_length,
                          float *buffer) {
-    RTC_DCHECK_LT(buffer_length, 2 * frame_length);
+    assert(buffer_length< 2 * frame_length);
 
     memcpy(buffer,
            buffer + frame_length,
@@ -2026,7 +2030,7 @@ static void FFT(NoiseSuppressionC *self,
                 float *magn) {
     size_t i;
 
-    RTC_DCHECK_EQ(magnitude_length, time_data_length / 2 + 1);
+    assert(magnitude_length == time_data_length / 2 + 1);
 
     WebRtc_rdft(time_data_length, 1, time_data, self->ip, self->wfft);
 
@@ -2062,7 +2066,7 @@ static void IFFT(NoiseSuppressionC *self,
                  float *time_data) {
     size_t i;
 
-    RTC_DCHECK_EQ(time_data_length, 2 * (magnitude_length - 1));
+    assert(time_data_length == 2 * (magnitude_length - 1));
 
     time_data[0] = real[0];
     time_data[1] = real[magnitude_length - 1];
@@ -2193,7 +2197,7 @@ void WebRtcNs_AnalyzeCore(NoiseSuppressionC *self, const float *speechFrame) {
     float parametric_num = 0.0;
 
     // Check that initiation has been done.
-    RTC_DCHECK_EQ(1, self->initFlag);
+    assert(1== self->initFlag);
     updateParsFlag = self->modelUpdatePars[0];
 
     // Update analysis buffer for L band.
@@ -2336,8 +2340,8 @@ void WebRtcNs_ProcessCore(NoiseSuppressionC *self,
     float sumMagnAnalyze, sumMagnProcess;
 
     // Check that initiation has been done.
-    RTC_DCHECK_EQ(1, self->initFlag);
-    RTC_DCHECK_LE(num_bands - 1, NUM_HIGH_BANDS_MAX);
+    assert(1== self->initFlag);
+    assert(num_bands - 1<=  NUM_HIGH_BANDS_MAX);
 
     const float *const *speechFrameHB = NULL;
     float *const *outFrameHB = NULL;
@@ -2378,15 +2382,15 @@ void WebRtcNs_ProcessCore(NoiseSuppressionC *self,
 
         for (i = 0; i < self->blockLen; ++i)
             outFrame[0][i] =
-                    WEBRTC_SPL_SAT(WEBRTC_SPL_WORD16_MAX, fout[i], WEBRTC_SPL_WORD16_MIN);
+                    SPL_SAT(32767, fout[i], (-32768));
 
         // For time-domain gain of HB.
         if (flagHB == 1) {
             for (i = 0; i < num_high_bands; ++i) {
                 for (j = 0; j < self->blockLen; ++j) {
-                    outFrameHB[i][j] = WEBRTC_SPL_SAT(WEBRTC_SPL_WORD16_MAX,
-                                                      self->dataBufHB[i][j],
-                                                      WEBRTC_SPL_WORD16_MIN);
+                    outFrameHB[i][j] = SPL_SAT(32767,
+                                               self->dataBufHB[i][j],
+                                               (-32768));
                 }
             }
         }
@@ -2447,7 +2451,6 @@ void WebRtcNs_ProcessCore(NoiseSuppressionC *self,
     if (self->gainmap == 1 && self->blockInd > END_STARTUP_LONG) {
         factor1 = 1.f;
         factor2 = 1.f;
-
         energy2 = Energy(winData, self->anaLen);
         gain = sqrtf(energy2 / (energy1 + 1.f));
 
@@ -2487,7 +2490,7 @@ void WebRtcNs_ProcessCore(NoiseSuppressionC *self,
 
     for (i = 0; i < self->blockLen; ++i)
         outFrame[0][i] =
-                WEBRTC_SPL_SAT(WEBRTC_SPL_WORD16_MAX, fout[i], WEBRTC_SPL_WORD16_MIN);
+                SPL_SAT(32767, fout[i], (-32768));
 
     // For time-domain gain of HB.
     if (flagHB == 1) {
@@ -2537,9 +2540,9 @@ void WebRtcNs_ProcessCore(NoiseSuppressionC *self,
         for (i = 0; i < num_high_bands; ++i) {
             for (j = 0; j < self->blockLen; j++) {
                 outFrameHB[i][j] =
-                        WEBRTC_SPL_SAT(WEBRTC_SPL_WORD16_MAX,
-                                       gainTimeDomainHB * self->dataBufHB[i][j],
-                                       WEBRTC_SPL_WORD16_MIN);
+                        SPL_SAT(32767,
+                                gainTimeDomainHB * self->dataBufHB[i][j],
+                                (-32768));
             }
         }
     }  // End of H band gain computation.
