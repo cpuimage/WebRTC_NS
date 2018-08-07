@@ -1,9 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-//采用https://github.com/mackron/dr_libs/blob/master/dr_wav.h 解码
+//ref:https://github.com/mackron/dr_libs/blob/master/dr_wav.h
 #define DR_WAV_IMPLEMENTATION
 
+#include "timing.h"
 #include "dr_wav.h"
 #include "noise_suppression.h"
 
@@ -39,14 +40,7 @@ int16_t *wavRead_int16(char *filename, uint32_t *sampleRate, uint64_t *totalSamp
     unsigned int channels;
     int16_t *buffer = drwav_open_and_read_file_s16(filename, &channels, sampleRate, totalSampleCount);
     if (buffer == nullptr) {
-        printf("读取wav文件失败.");
-    }
-    //仅仅处理单通道音频
-    if (channels != 1) {
-        drwav_free(buffer);
-        buffer = nullptr;
-        *sampleRate = 0;
-        *totalSampleCount = 0;
+        printf("ERROR.");
     }
     return buffer;
 }
@@ -98,50 +92,16 @@ enum nsLevel {
     kVeryHigh
 };
 
-static float S16ToFloat_C(int16_t v) {
-    if (v > 0) {
-        return ((float) v) / (float) INT16_MAX;
-    }
 
-    return (((float) v) / ((float) -INT16_MIN));
-}
-
-void S16ToFloat(const int16_t *src, size_t size, float *dest) {
-    size_t i;
-    for (i = 0; i < size; ++i)
-        dest[i] = S16ToFloat_C(src[i]);
-}
-
-static int16_t FloatToS16_C(float v) {
-    static const float kMaxRound = (float) INT16_MAX - 0.5f;
-    static const float kMinRound = (float) INT16_MIN + 0.5f;
-    if (v > 0) {
-        v *= kMaxRound;
-        return v >= kMaxRound ? INT16_MAX : (int16_t) (v + 0.5f);
-    }
-
-    v *= -kMinRound;
-    return v <= kMinRound ? INT16_MIN : (int16_t) (v - 0.5f);
-}
-
-void FloatToS16(const float *src, size_t size, int16_t *dest) {
-    size_t i;
-    for (i = 0; i < size; ++i)
-        dest[i] = FloatToS16_C(src[i]);
-}
-
-int nsProcess(int16_t *buffer, size_t sampleRate, int samplesCount, enum nsLevel level) {
+int nsProcess(int16_t *buffer, uint32_t sampleRate, int samplesCount, enum nsLevel level) {
     if (buffer == nullptr) return -1;
     if (samplesCount == 0) return -1;
     size_t samples = MIN(160, sampleRate / 100);
     if (samples == 0) return -1;
-    const int maxSamples = 320;
-    int num_bands = 1;
+    uint32_t num_bands = 1;
     int16_t *input = buffer;
     size_t nTotal = (samplesCount / samples);
-
     NsHandle *nsHandle = WebRtcNs_Create();
-
     int status = WebRtcNs_Init(nsHandle, sampleRate);
     if (status != 0) {
         printf("WebRtcNs_Init fail\n");
@@ -153,14 +113,10 @@ int nsProcess(int16_t *buffer, size_t sampleRate, int samplesCount, enum nsLevel
         return -1;
     }
     for (int i = 0; i < nTotal; i++) {
-        float inf_buffer[maxSamples];
-        float outf_buffer[maxSamples];
-        S16ToFloat(input, samples, inf_buffer);
-        float *nsIn[1] = {inf_buffer};   //ns input[band][data]
-        float *nsOut[1] = {outf_buffer};  //ns output[band][data]
+        int16_t *nsIn[1] = {input};   //ns input[band][data]
+        int16_t *nsOut[1] = {input};  //ns output[band][data]
         WebRtcNs_Analyze(nsHandle, nsIn[0]);
-        WebRtcNs_Process(nsHandle, (const float *const *) nsIn, num_bands, nsOut);
-        FloatToS16(outf_buffer, samples, input);
+        WebRtcNs_Process(nsHandle, (const int16_t *const *) nsIn, num_bands, nsOut);
         input += samples;
     }
     WebRtcNs_Free(nsHandle);
@@ -177,17 +133,18 @@ void noise_suppression(char *in_file, char *out_file) {
 
     //如果加载成功
     if (inBuffer != nullptr) {
-        nsProcess(inBuffer, sampleRate, inSampleCount, kVeryHigh);
+        double startTime = now();
+        nsProcess(inBuffer, sampleRate, inSampleCount, kModerate);
+        double time_interval = calcElapsed(startTime, now());
+        printf("time interval: %d ms\n ", (int) (time_interval * 1000));
         wavWrite_int16(out_file, inBuffer, sampleRate, inSampleCount);
-
         free(inBuffer);
     }
 }
 
 int main(int argc, char *argv[]) {
     printf("WebRtc Noise Suppression\n");
-    printf("博客:http://cpuimage.cnblogs.com/\n");
-    printf("音频噪声抑制\n");
+    printf("blog:http://cpuimage.cnblogs.com/\n");
     if (argc < 2)
         return -1;
     char *in_file = argv[1];
@@ -200,7 +157,7 @@ int main(int argc, char *argv[]) {
     sprintf(out_file, "%s%s%s_out%s", drive, dir, fname, ext);
     noise_suppression(in_file, out_file);
 
-    printf("按任意键退出程序 \n");
+    printf("press any key to exit. \n");
     getchar();
     return 0;
 }

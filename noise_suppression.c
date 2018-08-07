@@ -122,10 +122,6 @@ static void makect(size_t nc, size_t *ip, float *c);
 
 static void bitrv2(size_t n, size_t *ip, float *a);
 
-#if 0  // Not used.
-static void bitrv2conj(int n, int *ip, float *a);
-#endif
-
 static void cftfsub(size_t n, float *a, float *w);
 
 static void cftbsub(size_t n, float *a, float *w);
@@ -137,32 +133,6 @@ static void cftmdl(size_t n, size_t l, float *a, float *w);
 static void rftfsub(size_t n, float *a, size_t nc, float *c);
 
 static void rftbsub(size_t n, float *a, size_t nc, float *c);
-
-#if 0  // Not used.
-static void dctsub(int n, float *a, int nc, float *c)
-static void dstsub(int n, float *a, int nc, float *c)
-#endif
-
-
-#if 0  // Not used.
-void WebRtc_cdft(int n, int isgn, float *a, int *ip, float *w)
-{
-    if (n > (ip[0] << 2)) {
-        makewt(n >> 2, ip, w);
-    }
-    if (n > 4) {
-        if (isgn >= 0) {
-            bitrv2(n, ip + 2, a);
-            cftfsub(n, a, w);
-        } else {
-            bitrv2conj(n, ip + 2, a);
-            cftbsub(n, a, w);
-        }
-    } else if (n == 4) {
-        cftfsub(n, a, w);
-    }
-}
-#endif
 
 
 void WebRtc_rdft(size_t n, int isgn, float *a, size_t *ip, float *w) {
@@ -202,280 +172,6 @@ void WebRtc_rdft(size_t n, int isgn, float *a, size_t *ip, float *w) {
         }
     }
 }
-
-#if 0  // Not used.
-static void ddct(int n, int isgn, float *a, int *ip, float *w)
-{
-    int j, nw, nc;
-    float xr;
-
-    nw = ip[0];
-    if (n > (nw << 2)) {
-        nw = n >> 2;
-        makewt(nw, ip, w);
-    }
-    nc = ip[1];
-    if (n > nc) {
-        nc = n;
-        makect(nc, ip, w + nw);
-    }
-    if (isgn < 0) {
-        xr = a[n - 1];
-        for (j = n - 2; j >= 2; j -= 2) {
-            a[j + 1] = a[j] - a[j - 1];
-            a[j] += a[j - 1];
-        }
-        a[1] = a[0] - xr;
-        a[0] += xr;
-        if (n > 4) {
-            rftbsub(n, a, nc, w + nw);
-            bitrv2(n, ip + 2, a);
-            cftbsub(n, a, w);
-        } else if (n == 4) {
-            cftfsub(n, a, w);
-        }
-    }
-    dctsub(n, a, nc, w + nw);
-    if (isgn >= 0) {
-        if (n > 4) {
-            bitrv2(n, ip + 2, a);
-            cftfsub(n, a, w);
-            rftfsub(n, a, nc, w + nw);
-        } else if (n == 4) {
-            cftfsub(n, a, w);
-        }
-        xr = a[0] - a[1];
-        a[0] += a[1];
-        for (j = 2; j < n; j += 2) {
-            a[j - 1] = a[j] - a[j + 1];
-            a[j] += a[j + 1];
-        }
-        a[n - 1] = xr;
-    }
-}
-
-
-static void ddst(int n, int isgn, float *a, int *ip, float *w)
-{
-    int j, nw, nc;
-    float xr;
-
-    nw = ip[0];
-    if (n > (nw << 2)) {
-        nw = n >> 2;
-        makewt(nw, ip, w);
-    }
-    nc = ip[1];
-    if (n > nc) {
-        nc = n;
-        makect(nc, ip, w + nw);
-    }
-    if (isgn < 0) {
-        xr = a[n - 1];
-        for (j = n - 2; j >= 2; j -= 2) {
-            a[j + 1] = -a[j] - a[j - 1];
-            a[j] -= a[j - 1];
-        }
-        a[1] = a[0] + xr;
-        a[0] -= xr;
-        if (n > 4) {
-            rftbsub(n, a, nc, w + nw);
-            bitrv2(n, ip + 2, a);
-            cftbsub(n, a, w);
-        } else if (n == 4) {
-            cftfsub(n, a, w);
-        }
-    }
-    dstsub(n, a, nc, w + nw);
-    if (isgn >= 0) {
-        if (n > 4) {
-            bitrv2(n, ip + 2, a);
-            cftfsub(n, a, w);
-            rftfsub(n, a, nc, w + nw);
-        } else if (n == 4) {
-            cftfsub(n, a, w);
-        }
-        xr = a[0] - a[1];
-        a[0] += a[1];
-        for (j = 2; j < n; j += 2) {
-            a[j - 1] = -a[j] - a[j + 1];
-            a[j] -= a[j + 1];
-        }
-        a[n - 1] = -xr;
-    }
-}
-
-
-static void dfct(int n, float *a, float *t, int *ip, float *w)
-{
-    int j, k, l, m, mh, nw, nc;
-    float xr, xi, yr, yi;
-
-    nw = ip[0];
-    if (n > (nw << 3)) {
-        nw = n >> 3;
-        makewt(nw, ip, w);
-    }
-    nc = ip[1];
-    if (n > (nc << 1)) {
-        nc = n >> 1;
-        makect(nc, ip, w + nw);
-    }
-    m = n >> 1;
-    yi = a[m];
-    xi = a[0] + a[n];
-    a[0] -= a[n];
-    t[0] = xi - yi;
-    t[m] = xi + yi;
-    if (n > 2) {
-        mh = m >> 1;
-        for (j = 1; j < mh; j++) {
-            k = m - j;
-            xr = a[j] - a[n - j];
-            xi = a[j] + a[n - j];
-            yr = a[k] - a[n - k];
-            yi = a[k] + a[n - k];
-            a[j] = xr;
-            a[k] = yr;
-            t[j] = xi - yi;
-            t[k] = xi + yi;
-        }
-        t[mh] = a[mh] + a[n - mh];
-        a[mh] -= a[n - mh];
-        dctsub(m, a, nc, w + nw);
-        if (m > 4) {
-            bitrv2(m, ip + 2, a);
-            cftfsub(m, a, w);
-            rftfsub(m, a, nc, w + nw);
-        } else if (m == 4) {
-            cftfsub(m, a, w);
-        }
-        a[n - 1] = a[0] - a[1];
-        a[1] = a[0] + a[1];
-        for (j = m - 2; j >= 2; j -= 2) {
-            a[2 * j + 1] = a[j] + a[j + 1];
-            a[2 * j - 1] = a[j] - a[j + 1];
-        }
-        l = 2;
-        m = mh;
-        while (m >= 2) {
-            dctsub(m, t, nc, w + nw);
-            if (m > 4) {
-                bitrv2(m, ip + 2, t);
-                cftfsub(m, t, w);
-                rftfsub(m, t, nc, w + nw);
-            } else if (m == 4) {
-                cftfsub(m, t, w);
-            }
-            a[n - l] = t[0] - t[1];
-            a[l] = t[0] + t[1];
-            k = 0;
-            for (j = 2; j < m; j += 2) {
-                k += l << 2;
-                a[k - l] = t[j] - t[j + 1];
-                a[k + l] = t[j] + t[j + 1];
-            }
-            l <<= 1;
-            mh = m >> 1;
-            for (j = 0; j < mh; j++) {
-                k = m - j;
-                t[j] = t[m + k] - t[m + j];
-                t[k] = t[m + k] + t[m + j];
-            }
-            t[mh] = t[m + mh];
-            m = mh;
-        }
-        a[l] = t[0];
-        a[n] = t[2] - t[1];
-        a[0] = t[2] + t[1];
-    } else {
-        a[1] = a[0];
-        a[2] = t[0];
-        a[0] = t[1];
-    }
-}
-
-static void dfst(int n, float *a, float *t, int *ip, float *w)
-{
-    int j, k, l, m, mh, nw, nc;
-    float xr, xi, yr, yi;
-
-    nw = ip[0];
-    if (n > (nw << 3)) {
-        nw = n >> 3;
-        makewt(nw, ip, w);
-    }
-    nc = ip[1];
-    if (n > (nc << 1)) {
-        nc = n >> 1;
-        makect(nc, ip, w + nw);
-    }
-    if (n > 2) {
-        m = n >> 1;
-        mh = m >> 1;
-        for (j = 1; j < mh; j++) {
-            k = m - j;
-            xr = a[j] + a[n - j];
-            xi = a[j] - a[n - j];
-            yr = a[k] + a[n - k];
-            yi = a[k] - a[n - k];
-            a[j] = xr;
-            a[k] = yr;
-            t[j] = xi + yi;
-            t[k] = xi - yi;
-        }
-        t[0] = a[mh] - a[n - mh];
-        a[mh] += a[n - mh];
-        a[0] = a[m];
-        dstsub(m, a, nc, w + nw);
-        if (m > 4) {
-            bitrv2(m, ip + 2, a);
-            cftfsub(m, a, w);
-            rftfsub(m, a, nc, w + nw);
-        } else if (m == 4) {
-            cftfsub(m, a, w);
-        }
-        a[n - 1] = a[1] - a[0];
-        a[1] = a[0] + a[1];
-        for (j = m - 2; j >= 2; j -= 2) {
-            a[2 * j + 1] = a[j] - a[j + 1];
-            a[2 * j - 1] = -a[j] - a[j + 1];
-        }
-        l = 2;
-        m = mh;
-        while (m >= 2) {
-            dstsub(m, t, nc, w + nw);
-            if (m > 4) {
-                bitrv2(m, ip + 2, t);
-                cftfsub(m, t, w);
-                rftfsub(m, t, nc, w + nw);
-            } else if (m == 4) {
-                cftfsub(m, t, w);
-            }
-            a[n - l] = t[1] - t[0];
-            a[l] = t[0] + t[1];
-            k = 0;
-            for (j = 2; j < m; j += 2) {
-                k += l << 2;
-                a[k - l] = -t[j] - t[j + 1];
-                a[k + l] = t[j] - t[j + 1];
-            }
-            l <<= 1;
-            mh = m >> 1;
-            for (j = 1; j < mh; j++) {
-                k = m - j;
-                t[j] = t[m + k] + t[m + j];
-                t[k] = t[m + k] - t[m + j];
-            }
-            t[0] = t[m + mh];
-            m = mh;
-        }
-        a[l] = t[0];
-    }
-    a[0] = 0;
-}
-#endif  // Not used.
-
 
 /* -------- initializing routines -------- */
 
@@ -627,116 +323,6 @@ static void bitrv2(size_t n, size_t *ip, float *a) {
         }
     }
 }
-
-#if 0  // Not used.
-static void bitrv2conj(int n, int *ip, float *a)
-{
-    int j, j1, k, k1, l, m, m2;
-    float xr, xi, yr, yi;
-
-    ip[0] = 0;
-    l = n;
-    m = 1;
-    while ((m << 3) < l) {
-        l >>= 1;
-        for (j = 0; j < m; j++) {
-            ip[m + j] = ip[j] + l;
-        }
-        m <<= 1;
-    }
-    m2 = 2 * m;
-    if ((m << 3) == l) {
-        for (k = 0; k < m; k++) {
-            for (j = 0; j < k; j++) {
-                j1 = 2 * j + ip[k];
-                k1 = 2 * k + ip[j];
-                xr = a[j1];
-                xi = -a[j1 + 1];
-                yr = a[k1];
-                yi = -a[k1 + 1];
-                a[j1] = yr;
-                a[j1 + 1] = yi;
-                a[k1] = xr;
-                a[k1 + 1] = xi;
-                j1 += m2;
-                k1 += 2 * m2;
-                xr = a[j1];
-                xi = -a[j1 + 1];
-                yr = a[k1];
-                yi = -a[k1 + 1];
-                a[j1] = yr;
-                a[j1 + 1] = yi;
-                a[k1] = xr;
-                a[k1 + 1] = xi;
-                j1 += m2;
-                k1 -= m2;
-                xr = a[j1];
-                xi = -a[j1 + 1];
-                yr = a[k1];
-                yi = -a[k1 + 1];
-                a[j1] = yr;
-                a[j1 + 1] = yi;
-                a[k1] = xr;
-                a[k1 + 1] = xi;
-                j1 += m2;
-                k1 += 2 * m2;
-                xr = a[j1];
-                xi = -a[j1 + 1];
-                yr = a[k1];
-                yi = -a[k1 + 1];
-                a[j1] = yr;
-                a[j1 + 1] = yi;
-                a[k1] = xr;
-                a[k1 + 1] = xi;
-            }
-            k1 = 2 * k + ip[k];
-            a[k1 + 1] = -a[k1 + 1];
-            j1 = k1 + m2;
-            k1 = j1 + m2;
-            xr = a[j1];
-            xi = -a[j1 + 1];
-            yr = a[k1];
-            yi = -a[k1 + 1];
-            a[j1] = yr;
-            a[j1 + 1] = yi;
-            a[k1] = xr;
-            a[k1 + 1] = xi;
-            k1 += m2;
-            a[k1 + 1] = -a[k1 + 1];
-        }
-    } else {
-        a[1] = -a[1];
-        a[m2 + 1] = -a[m2 + 1];
-        for (k = 1; k < m; k++) {
-            for (j = 0; j < k; j++) {
-                j1 = 2 * j + ip[k];
-                k1 = 2 * k + ip[j];
-                xr = a[j1];
-                xi = -a[j1 + 1];
-                yr = a[k1];
-                yi = -a[k1 + 1];
-                a[j1] = yr;
-                a[j1 + 1] = yi;
-                a[k1] = xr;
-                a[k1 + 1] = xi;
-                j1 += m2;
-                k1 += m2;
-                xr = a[j1];
-                xi = -a[j1 + 1];
-                yr = a[k1];
-                yi = -a[k1 + 1];
-                a[j1] = yr;
-                a[j1 + 1] = yi;
-                a[k1] = xr;
-                a[k1 + 1] = xi;
-            }
-            k1 = 2 * k + ip[k];
-            a[k1 + 1] = -a[k1 + 1];
-            a[k1 + m2 + 1] = -a[k1 + m2 + 1];
-        }
-    }
-}
-#endif
 
 static void cftfsub(size_t n, float *a, float *w) {
     size_t j, j1, j2, j3, l;
@@ -1115,48 +701,6 @@ static void rftbsub(size_t n, float *a, size_t nc, float *c) {
     a[m + 1] = -a[m + 1];
 }
 
-#if 0  // Not used.
-static void dctsub(int n, float *a, int nc, float *c)
-{
-    int j, k, kk, ks, m;
-    float wkr, wki, xr;
-
-    m = n >> 1;
-    ks = nc / n;
-    kk = 0;
-    for (j = 1; j < m; j++) {
-        k = n - j;
-        kk += ks;
-        wkr = c[kk] - c[nc - kk];
-        wki = c[kk] + c[nc - kk];
-        xr = wki * a[j] - wkr * a[k];
-        a[j] = wkr * a[j] + wki * a[k];
-        a[k] = xr;
-    }
-    a[m] *= c[0];
-}
-
-
-static void dstsub(int n, float *a, int nc, float *c)
-{
-    int j, k, kk, ks, m;
-    float wkr, wki, xr;
-
-    m = n >> 1;
-    ks = nc / n;
-    kk = 0;
-    for (j = 1; j < m; j++) {
-        k = n - j;
-        kk += ks;
-        wkr = c[kk] - c[nc - kk];
-        wki = c[kk] + c[nc - kk];
-        xr = wki * a[k] - wkr * a[j];
-        a[k] = wkr * a[k] + wki * a[j];
-        a[j] = xr;
-    }
-    a[m] *= c[0];
-}
-#endif  // Not used.
 
 // Set Feature Extraction Parameters.
 static void set_feature_extraction_parameters(NoiseSuppressionC *self) {
@@ -1218,7 +762,7 @@ int WebRtcNs_InitCore(NoiseSuppressionC *self, uint32_t fs) {
     }
 
     // Initialization of struct.
-    if (fs == 8000 || fs == 16000 || fs == 32000 || fs == 48000) {
+    if (fs == 8000 || fs == 16000 || fs == 32000 || fs == 48000 || fs == 44100) {
         self->fs = fs;
     } else {
         return -1;
@@ -1990,19 +1534,19 @@ static void UpdateNoiseEstimate(NoiseSuppressionC *self,
 //   * |buffer_length| is the length of the buffer.
 // Output:
 //   * |buffer| is the updated buffer.
-static void UpdateBuffer(const float *frame,
+static void UpdateBuffer(const int16_t *frame,
                          size_t frame_length,
                          size_t buffer_length,
                          float *buffer) {
-    assert(buffer_length< 2 * frame_length);
+    assert(buffer_length < 2 * frame_length);
 
     memcpy(buffer,
            buffer + frame_length,
            sizeof(*buffer) * (buffer_length - frame_length));
     if (frame) {
-        memcpy(buffer + buffer_length - frame_length,
-               frame,
-               sizeof(*buffer) * frame_length);
+        for (int i = 0; i < frame_length; ++i) {
+            buffer[buffer_length - frame_length + i] = frame[i];
+        }
     } else {
         memset(buffer + buffer_length - frame_length,
                0,
@@ -2176,7 +1720,7 @@ int WebRtcNs_set_policy_core(NoiseSuppressionC *self, int mode) {
     return 0;
 }
 
-void WebRtcNs_AnalyzeCore(NoiseSuppressionC *self, const float *speechFrame) {
+void WebRtcNs_AnalyzeCore(NoiseSuppressionC *self, const int16_t *speechFrame) {
     size_t i;
     const size_t kStartBand = 5;  // Skip first frequency bins during estimation.
     int updateParsFlag;
@@ -2197,7 +1741,7 @@ void WebRtcNs_AnalyzeCore(NoiseSuppressionC *self, const float *speechFrame) {
     float parametric_num = 0.0;
 
     // Check that initiation has been done.
-    assert(1== self->initFlag);
+    assert(1 == self->initFlag);
     updateParsFlag = self->modelUpdatePars[0];
 
     // Update analysis buffer for L band.
@@ -2317,9 +1861,9 @@ void WebRtcNs_AnalyzeCore(NoiseSuppressionC *self, const float *speechFrame) {
 }
 
 void WebRtcNs_ProcessCore(NoiseSuppressionC *self,
-                          const float *const *speechFrame,
+                          const int16_t *const *speechFrame,
                           size_t num_bands,
-                          float *const *outFrame) {
+                          int16_t *const *outFrame) {
     // Main routine for noise reduction.
     int flagHB = 0;
     size_t i, j;
@@ -2340,11 +1884,11 @@ void WebRtcNs_ProcessCore(NoiseSuppressionC *self,
     float sumMagnAnalyze, sumMagnProcess;
 
     // Check that initiation has been done.
-    assert(1== self->initFlag);
-    assert(num_bands - 1<=  NUM_HIGH_BANDS_MAX);
+    assert(1 == self->initFlag);
+    assert(num_bands - 1 <= NUM_HIGH_BANDS_MAX);
 
-    const float *const *speechFrameHB = NULL;
-    float *const *outFrameHB = NULL;
+    const int16_t *const *speechFrameHB = NULL;
+    int16_t *const *outFrameHB = NULL;
     size_t num_high_bands = 0;
     if (num_bands > 1) {
         speechFrameHB = &speechFrame[1];
@@ -2568,14 +2112,14 @@ int WebRtcNs_set_policy(NsHandle *NS_inst, int mode) {
     return WebRtcNs_set_policy_core((NoiseSuppressionC *) NS_inst, mode);
 }
 
-void WebRtcNs_Analyze(NsHandle *NS_inst, const float *spframe) {
+void WebRtcNs_Analyze(NsHandle *NS_inst, const int16_t *spframe) {
     WebRtcNs_AnalyzeCore((NoiseSuppressionC *) NS_inst, spframe);
 }
 
 void WebRtcNs_Process(NsHandle *NS_inst,
-                      const float *const *spframe,
+                      const int16_t *const *spframe,
                       size_t num_bands,
-                      float *const *outframe) {
+                      int16_t *const *outframe) {
     WebRtcNs_ProcessCore((NoiseSuppressionC *) NS_inst, spframe, num_bands,
                          outframe);
 }

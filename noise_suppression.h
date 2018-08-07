@@ -7,16 +7,6 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-/*
- *  Copyright (c) 2011 The WebRTC project authors. All Rights Reserved.
- *
- *  Use of this source code is governed by a BSD-style license
- *  that can be found in the LICENSE file in the root of the source
- *  tree. An additional intellectual property rights grant can be found
- *  in the file PATENTS.  All contributing project authors may
- *  be found in the AUTHORS file in the root of the source tree.
- */
-
 #ifndef WEBRTC_MODULES_AUDIO_PROCESSING_NS_NOISE_SUPPRESSION_H_
 #define WEBRTC_MODULES_AUDIO_PROCESSING_NS_NOISE_SUPPRESSION_H_
 
@@ -217,7 +207,7 @@ int WebRtcNs_set_policy_core(NoiseSuppressionC *self, int mode);
  * Output:
  *      - self          : Updated instance
  */
-void WebRtcNs_AnalyzeCore(NoiseSuppressionC *self, const float *speechFrame);
+void WebRtcNs_AnalyzeCore(NoiseSuppressionC *self, const int16_t *speechFrame);
 
 /****************************************************************************
  * WebRtcNs_ProcessCore
@@ -234,9 +224,9 @@ void WebRtcNs_AnalyzeCore(NoiseSuppressionC *self, const float *speechFrame);
  *      - outFrame      : Output speech frame for each band
  */
 void WebRtcNs_ProcessCore(NoiseSuppressionC *self,
-                          const float *const *inFrame,
+                          const int16_t *const *inFrame,
                           size_t num_bands,
-                          float *const *outFrame);
+                          int16_t *const *outFrame);
 
 /*
  * This function creates an instance of the floating point Noise Suppression.
@@ -294,7 +284,7 @@ int WebRtcNs_set_policy(NsHandle *NS_inst, int mode);
  * Output:
  *      - NS_inst       : Updated NS instance
  */
-void WebRtcNs_Analyze(NsHandle *NS_inst, const float *spframe);
+void WebRtcNs_Analyze(NsHandle *NS_inst, const int16_t *spframe);
 
 /*
  * This functions does Noise Suppression for the inserted speech frame. The
@@ -310,9 +300,9 @@ void WebRtcNs_Analyze(NsHandle *NS_inst, const float *spframe);
  *      - outframe      : Pointer to output frame for each band
  */
 void WebRtcNs_Process(NsHandle *NS_inst,
-                      const float *const *spframe,
+                      const int16_t *const *spframe,
                       size_t num_bands,
-                      float *const *outframe);
+                      int16_t *const *outframe);
 
 /* Returns the internally used prior speech probability of the current frame.
  * There is a frequency bin based one as well, with which this should not be
