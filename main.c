@@ -169,11 +169,10 @@ int nsProcess(int16_t *buffer, uint32_t sampleRate, uint64_t samplesCount, uint3
             int16_t *nsOut[1] = {frameBuffer};  //ns output[band][data]
             WebRtcNs_Analyze(NsHandles[c], nsIn[0]);
             WebRtcNs_Process(NsHandles[c], (const int16_t *const *) nsIn, num_bands, nsOut);
-
             for (int k = 0; k < samples; k++)
                 input[k * channels + c] = frameBuffer[k];
-            input += samples;
         }
+        input += samples * channels;
     }
 
     for (int i = 0; i < channels; i++) {
