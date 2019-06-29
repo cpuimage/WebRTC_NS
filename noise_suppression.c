@@ -778,7 +778,7 @@ int WebRtcNs_InitCore(NoiseSuppressionC *self, uint32_t fs) {
         self->window = kBlocks160w256;
     }
     self->magnLen = self->anaLen / 2 + 1;  // Number of frequency bins.
-
+    self->normMagnLen = 1.0f / self->magnLen;
     // Initialize FFT work arrays.
     self->ip[0] = 0;  // Setting this triggers initialization.
     memset(self->dataBuf, 0, sizeof(float) * ANAL_BLOCKL_MAX);
@@ -810,6 +810,8 @@ int WebRtcNs_InitCore(NoiseSuppressionC *self, uint32_t fs) {
     // Wiener filter initialization.
     for (i = 0; i < HALF_ANAL_BLOCKL; i++) {
         self->smooth[i] = 1.f;
+        self->log_lut[i] = logf((float) i);
+        self->log_lut_sqr[i] = self->log_lut[i] * self->log_lut[i];
     }
 
     // Set the aggressiveness: default.
@@ -897,47 +899,39 @@ int WebRtcNs_InitCore(NoiseSuppressionC *self, uint32_t fs) {
 
 // Estimate noise.
 static void NoiseEstimation(NoiseSuppressionC *self,
-                            float *magn,
+                            float *lmagn,
                             float *noise) {
     size_t i, s, offset = 0;
-    float lmagn[HALF_ANAL_BLOCKL], delta;
+    float delta;
 
     if (self->updates < END_STARTUP_LONG) {
         self->updates++;
     }
 
-    for (i = 0; i < self->magnLen; i++) {
-        lmagn[i] = logf(magn[i]);
-    }
-
     // Loop over simultaneous estimates.
     for (s = 0; s < SIMULT; s++) {
         offset = s * self->magnLen;
-
+        float norm_counter_weight = 1.f / (self->counter[s] + 1);
         // newquantest(...)
         for (i = 0; i < self->magnLen; i++) {
             // Compute delta.
             if (self->density[offset + i] > 1.0) {
-                delta = FACTOR * 1.f / self->density[offset + i];
+                delta = FACTOR / self->density[offset + i];
             } else {
                 delta = FACTOR;
             }
-
             // Update log quantile estimate.
             if (lmagn[i] > self->lquantile[offset + i]) {
-                self->lquantile[offset + i] +=
-                        QUANTILE * delta / (float) (self->counter[s] + 1);
+                self->lquantile[offset + i] += QUANTILE * delta * norm_counter_weight;
             } else {
-                self->lquantile[offset + i] -=
-                        (1.f - QUANTILE) * delta / (float) (self->counter[s] + 1);
+                self->lquantile[offset + i] -= (1.f - QUANTILE) * delta * norm_counter_weight;
             }
 
             // Update density estimate.
             if (fabsf(lmagn[i] - self->lquantile[offset + i]) < WIDTH) {
                 self->density[offset + i] =
-                        ((float) self->counter[s] * self->density[offset + i] +
-                         1.f / (2.f * WIDTH)) /
-                        (float) (self->counter[s] + 1);
+                        ((float) self->counter[s] * self->density[offset + i] + 1.f / (2.f * WIDTH)) *
+                        norm_counter_weight;
             }
         }  // End loop over magnitude spectrum.
 
@@ -959,11 +953,11 @@ static void NoiseEstimation(NoiseSuppressionC *self,
         for (i = 0; i < self->magnLen; i++) {
             self->quantile[i] = expf(self->lquantile[offset + i]);
         }
+        memcpy(noise, self->quantile, self->magnLen * sizeof(*noise));
+    } else {
+        memcpy(noise, self->quantile, self->magnLen * sizeof(*noise));
     }
 
-    for (i = 0; i < self->magnLen; i++) {
-        noise[i] = self->quantile[i];
-    }
 }
 
 // Extract thresholds for feature parameters.
@@ -1185,8 +1179,8 @@ static void FeatureParameterExtraction(NoiseSuppressionC *self, int flag) {
         // self->priorModelPars[6] is weight for spectral difference.
         featureSum = (float) (1 + useFeatureSpecFlat + useFeatureSpecDiff);
         self->priorModelPars[4] = 1.f / featureSum;
-        self->priorModelPars[5] = ((float) useFeatureSpecFlat) / featureSum;
-        self->priorModelPars[6] = ((float) useFeatureSpecDiff) / featureSum;
+        self->priorModelPars[5] = ((float) useFeatureSpecFlat) * self->priorModelPars[4];
+        self->priorModelPars[6] = ((float) useFeatureSpecDiff) * self->priorModelPars[4];
 
         // Set hists to zero for next update.
         if (self->modelUpdatePars[0] >= 1) {
@@ -1203,7 +1197,7 @@ static void FeatureParameterExtraction(NoiseSuppressionC *self, int flag) {
 // |magnIn| is the magnitude spectrum.
 // Spectral flatness is returned in self->featureData[0].
 static void ComputeSpectralFlatness(NoiseSuppressionC *self,
-                                    const float *magnIn) {
+                                    const float *magnIn, const float *logmagnIn) {
     size_t i;
     size_t shiftLP = 1;  // Option to remove first bin(s) from spectral measures.
     float avgSpectralFlatnessNum, avgSpectralFlatnessDen, spectralTmp;
@@ -1219,15 +1213,15 @@ static void ComputeSpectralFlatness(NoiseSuppressionC *self,
     // case.
     for (i = shiftLP; i < self->magnLen; i++) {
         if (magnIn[i] > 0.0) {
-            avgSpectralFlatnessNum += logf(magnIn[i]);
+            avgSpectralFlatnessNum += logmagnIn[i];
         } else {
             self->featureData[0] -= SPECT_FL_TAVG * self->featureData[0];
             return;
         }
     }
     // Normalize.
-    avgSpectralFlatnessDen = avgSpectralFlatnessDen / self->magnLen;
-    avgSpectralFlatnessNum = avgSpectralFlatnessNum / self->magnLen;
+    avgSpectralFlatnessDen = avgSpectralFlatnessDen * self->normMagnLen;
+    avgSpectralFlatnessNum = avgSpectralFlatnessNum * self->normMagnLen;
 
     // Ratio and inverse log: check for case of log(0).
     spectralTmp = expf(avgSpectralFlatnessNum) / avgSpectralFlatnessDen;
@@ -1248,7 +1242,7 @@ static void ComputeSpectralFlatness(NoiseSuppressionC *self,
 static void ComputeSnr(const NoiseSuppressionC *self,
                        const float *magn,
                        const float *noise,
-                       float *snrLocPrior,
+                       float *snrLocPrior, float *logSnrLocPrior,
                        float *snrLocPost) {
     size_t i;
 
@@ -1264,8 +1258,9 @@ static void ComputeSnr(const NoiseSuppressionC *self,
         }
         // DD estimate is sum of two terms: current estimate and previous estimate.
         // Directed decision update of snrPrior.
-        snrLocPrior[i] =
-                DD_PR_SNR * previousEstimateStsa + (1.f - DD_PR_SNR) * snrLocPost[i];
+        snrLocPrior[i] = 2.f * (
+                DD_PR_SNR * previousEstimateStsa + (1.f - DD_PR_SNR) * snrLocPost[i]);
+        logSnrLocPrior[i] = logf(snrLocPrior[i] + 1.0f);
     }  // End of loop over frequencies.
 }
 
@@ -1288,22 +1283,23 @@ static void ComputeSpectralDifference(NoiseSuppressionC *self,
         // Conservative smooth noise spectrum from pause frames.
         avgPause += self->magnAvgPause[i];
     }
-    avgPause /= self->magnLen;
-    avgMagn /= self->magnLen;
+    avgPause *= self->normMagnLen;
+    avgMagn *= self->normMagnLen;
 
     covMagnPause = 0.0;
     varPause = 0.0;
     varMagn = 0.0;
     // Compute variance and covariance quantities.
     for (i = 0; i < self->magnLen; i++) {
-        covMagnPause += (magnIn[i] - avgMagn) * (self->magnAvgPause[i] - avgPause);
-        varPause +=
-                (self->magnAvgPause[i] - avgPause) * (self->magnAvgPause[i] - avgPause);
-        varMagn += (magnIn[i] - avgMagn) * (magnIn[i] - avgMagn);
+        const float avgPauseDiff = self->magnAvgPause[i] - avgPause;
+        const float avgMagnDiff = magnIn[i] - avgMagn;
+        covMagnPause += avgMagnDiff * avgPauseDiff;
+        varPause += avgPauseDiff * avgPauseDiff;
+        varMagn += avgMagnDiff * avgMagnDiff;
     }
-    covMagnPause /= self->magnLen;
-    varPause /= self->magnLen;
-    varMagn /= self->magnLen;
+    covMagnPause *= self->normMagnLen;
+    varPause *= self->normMagnLen;
+    varMagn *= self->normMagnLen;
     // Update of average magnitude spectrum.
     self->featureData[6] += self->signalEnergy;
 
@@ -1323,14 +1319,14 @@ static void ComputeSpectralDifference(NoiseSuppressionC *self,
 // |snrLocPost| is the post SNR for each frequency.
 static void SpeechNoiseProb(NoiseSuppressionC *self,
                             float *probSpeechFinal,
-                            const float *snrLocPrior,
+                            const float *snrLocPrior, const float *logSnrLocPrior,
                             const float *snrLocPost) {
     size_t i;
     int sgnMap;
     float invLrt, gainPrior, indPrior;
     float logLrtTimeAvgKsum, besselTmp;
     float indicator0, indicator1, indicator2;
-    float tmpFloat1, tmpFloat2;
+    float tmpSnrLocPrior;
     float weightIndPrior0, weightIndPrior1, weightIndPrior2;
     float threshPrior0, threshPrior1, threshPrior2;
     float widthPrior, widthPrior0, widthPrior1, widthPrior2;
@@ -1357,14 +1353,12 @@ static void SpeechNoiseProb(NoiseSuppressionC *self,
     // This is the average over all frequencies of the smooth log LRT.
     logLrtTimeAvgKsum = 0.0;
     for (i = 0; i < self->magnLen; i++) {
-        tmpFloat1 = 1.f + 2.f * snrLocPrior[i];
-        tmpFloat2 = 2.f * snrLocPrior[i] / (tmpFloat1 + 0.0001f);
-        besselTmp = (snrLocPost[i] + 1.f) * tmpFloat2;
-        self->logLrtTimeAvg[i] +=
-                LRT_TAVG * (besselTmp - logf(tmpFloat1) - self->logLrtTimeAvg[i]);
+        tmpSnrLocPrior = snrLocPrior[i];
+        besselTmp = (snrLocPost[i] * tmpSnrLocPrior + tmpSnrLocPrior) / (tmpSnrLocPrior + 1.0001f);
+        self->logLrtTimeAvg[i] += LRT_TAVG * (besselTmp - logSnrLocPrior[i] - self->logLrtTimeAvg[i]);
         logLrtTimeAvgKsum += self->logLrtTimeAvg[i];
     }
-    logLrtTimeAvgKsum = logLrtTimeAvgKsum / (self->magnLen);
+    logLrtTimeAvgKsum = logLrtTimeAvgKsum * self->normMagnLen;
     self->featureData[3] = logLrtTimeAvgKsum;
     // Done with computation of LR factor.
 
@@ -1376,36 +1370,30 @@ static void SpeechNoiseProb(NoiseSuppressionC *self,
         widthPrior = widthPrior1;
     }
     // Compute indicator function: sigmoid map.
-    indicator0 =
-            0.5f *
-            (tanhf(widthPrior * (logLrtTimeAvgKsum - threshPrior0)) + 1.f);
+    indicator0 = 0.5f * tanhf(widthPrior * (logLrtTimeAvgKsum - threshPrior0)) + 0.5f;
 
     // Spectral flatness feature.
-    tmpFloat1 = self->featureData[0];
+    tmpSnrLocPrior = self->featureData[0];
     widthPrior = widthPrior0;
     // Use larger width in tanh map for pause regions.
-    if (sgnMap == 1 && (tmpFloat1 > threshPrior1)) {
+    if (sgnMap == 1 && (tmpSnrLocPrior > threshPrior1)) {
         widthPrior = widthPrior1;
     }
-    if (sgnMap == -1 && (tmpFloat1 < threshPrior1)) {
+    if (sgnMap == -1 && (tmpSnrLocPrior < threshPrior1)) {
         widthPrior = widthPrior1;
     }
     // Compute indicator function: sigmoid map.
-    indicator1 =
-            0.5f *
-            (tanhf((float) sgnMap * widthPrior * (threshPrior1 - tmpFloat1)) +
-             1.f);
+    indicator1 = 0.5f * tanhf((float) sgnMap * widthPrior * (threshPrior1 - tmpSnrLocPrior)) + 0.5f;
 
     // For template spectrum-difference.
-    tmpFloat1 = self->featureData[4];
+    tmpSnrLocPrior = self->featureData[4];
     widthPrior = widthPrior0;
     // Use larger width in tanh map for pause regions.
-    if (tmpFloat1 < threshPrior2) {
+    if (tmpSnrLocPrior < threshPrior2) {
         widthPrior = widthPrior2;
     }
     // Compute indicator function: sigmoid map.
-    indicator2 =
-            0.5f * (tanhf(widthPrior * (tmpFloat1 - threshPrior2)) + 1.f);
+    indicator2 = 0.5f * tanhf(widthPrior * (tmpSnrLocPrior - threshPrior2)) + 0.5f;
 
     // Combine the indicator function with the feature weights.
     indPrior = weightIndPrior0 * indicator0 + weightIndPrior1 * indicator1 +
@@ -1436,10 +1424,10 @@ static void SpeechNoiseProb(NoiseSuppressionC *self,
 //   * |magn| is the signal magnitude spectrum estimate.
 //   * |updateParsFlag| is an update flag for parameters.
 static void FeatureUpdate(NoiseSuppressionC *self,
-                          const float *magn,
+                          const float *magn, const float *lmagn,
                           int updateParsFlag) {
     // Compute spectral flatness on input spectrum.
-    ComputeSpectralFlatness(self, magn);
+    ComputeSpectralFlatness(self, magn, lmagn);
     // Compute difference of input spectrum with learned/estimated noise spectrum.
     ComputeSpectralDifference(self, magn);
     // Compute histograms for parameter decisions (thresholds and weights for
@@ -1543,7 +1531,8 @@ static void UpdateBuffer(const int16_t *frame,
            buffer + frame_length,
            sizeof(*buffer) * (buffer_length - frame_length));
     if (frame) {
-        for (int i = 0; i < frame_length; ++i) {
+        int i = 0;
+        for (i = 0; i < frame_length; ++i) {
             buffer[buffer_length - frame_length + i] = frame[i];
         }
     } else {
@@ -1570,7 +1559,7 @@ static void FFT(NoiseSuppressionC *self,
                 size_t magnitude_length,
                 float *real,
                 float *imag,
-                float *magn) {
+                float *magn, float *lmagn, int prev_calc, float *signalEnergy, float *sumMagn) {
     size_t i;
 
     assert(magnitude_length == time_data_length / 2 + 1);
@@ -1583,11 +1572,34 @@ static void FFT(NoiseSuppressionC *self,
     imag[magnitude_length - 1] = 0;
     real[magnitude_length - 1] = time_data[1];
     magn[magnitude_length - 1] = fabsf(real[magnitude_length - 1]) + 1.f;
-    for (i = 1; i < magnitude_length - 1; ++i) {
-        real[i] = time_data[2 * i];
-        imag[i] = time_data[2 * i + 1];
-        // Magnitude spectrum.
-        magn[i] = sqrtf(real[i] * real[i] + imag[i] * imag[i]) + 1.f;
+    float *time_data_ptr = time_data + 2;
+    if (prev_calc == 1) {
+        float first = real[0] * real[0] + imag[0] * imag[0];
+        float last = real[magnitude_length - 1] * real[magnitude_length - 1] +
+                     imag[magnitude_length - 1] * imag[magnitude_length - 1];
+        *signalEnergy = first + last;
+        *sumMagn = sqrtf(first) + 2.f + sqrtf(last);
+        lmagn[0] = logf(magn[0]);
+        lmagn[magnitude_length - 1] = logf(magn[magnitude_length - 1]);
+        for (i = 1; i < magnitude_length - 1; ++i) {
+            real[i] = time_data_ptr[0];
+            imag[i] = time_data_ptr[1];
+            const float energy = real[i] * real[i] + imag[i] * imag[i];
+            *signalEnergy += energy;
+            // Magnitude spectrum.
+            magn[i] = sqrtf(energy) + 1.f;
+            *sumMagn += magn[i];
+            lmagn[i] = logf(magn[i]);
+            time_data_ptr += 2;
+        }
+    } else {
+        for (i = 1; i < magnitude_length - 1; ++i) {
+            real[i] = time_data_ptr[0];
+            imag[i] = time_data_ptr[1];
+            // Magnitude spectrum.
+            magn[i] = sqrtf(real[i] * real[i] + imag[i] * imag[i]) + 1.f;
+            time_data_ptr += 2;
+        }
     }
 }
 
@@ -1613,15 +1625,30 @@ static void IFFT(NoiseSuppressionC *self,
 
     time_data[0] = real[0];
     time_data[1] = real[magnitude_length - 1];
+    float *time_data_ptr = time_data + 2;
     for (i = 1; i < magnitude_length - 1; ++i) {
-        time_data[2 * i] = real[i];
-        time_data[2 * i + 1] = imag[i];
+        time_data_ptr[0] = real[i];
+        time_data_ptr[1] = imag[i];
+        time_data_ptr += 2;
     }
     WebRtc_rdft(time_data_length, -1, time_data, self->ip, self->wfft);
-
+    float norm = 2.f / time_data_length;
     for (i = 0; i < time_data_length; ++i) {
-        time_data[i] *= 2.f / time_data_length;  // FFT scaling.
+        time_data[i] *= norm;  // FFT scaling.
     }
+}
+
+static float WindowingEnergy(const float *window,
+                             const float *data,
+                             size_t length,
+                             float *data_windowed) {
+    size_t i;
+    float energy = 0.f;
+    for (i = 0; i < length; ++i) {
+        data_windowed[i] = window[i] * data[i];
+        energy += data_windowed[i] * data_windowed[i];
+    }
+    return energy;
 }
 
 // Calculates the energy of a buffer.
@@ -1728,8 +1755,9 @@ void WebRtcNs_AnalyzeCore(NoiseSuppressionC *self, const int16_t *speechFrame) {
     float sumMagn = 0.f;
     float tmpFloat1, tmpFloat2, tmpFloat3;
     float winData[ANAL_BLOCKL_MAX];
+    float lmagn[HALF_ANAL_BLOCKL];
     float magn[HALF_ANAL_BLOCKL], noise[HALF_ANAL_BLOCKL];
-    float snrLocPost[HALF_ANAL_BLOCKL], snrLocPrior[HALF_ANAL_BLOCKL];
+    float snrLocPost[HALF_ANAL_BLOCKL], snrLocPrior[HALF_ANAL_BLOCKL], logSnrLocPrior[HALF_ANAL_BLOCKL];
     float real[ANAL_BLOCKL_MAX], imag[HALF_ANAL_BLOCKL];
     // Variables during startup.
     float sum_log_i = 0.0;
@@ -1745,9 +1773,7 @@ void WebRtcNs_AnalyzeCore(NoiseSuppressionC *self, const int16_t *speechFrame) {
 
     // Update analysis buffer for L band.
     UpdateBuffer(speechFrame, self->blockLen, self->anaLen, self->analyzeBuf);
-
-    Windowing(self->window, self->analyzeBuf, self->anaLen, winData);
-    energy = Energy(winData, self->anaLen);
+    energy = WindowingEnergy(self->window, self->analyzeBuf, self->anaLen, winData);
     if (energy == 0.0) {
         // We want to avoid updating statistics in this case:
         // Updating feature statistics when we have zeros only will cause
@@ -1762,37 +1788,30 @@ void WebRtcNs_AnalyzeCore(NoiseSuppressionC *self, const int16_t *speechFrame) {
 
     self->blockInd++;  // Update the block index only when we process a block.
 
-    FFT(self, winData, self->anaLen, self->magnLen, real, imag, magn);
-
-    for (i = 0; i < self->magnLen; i++) {
-        signalEnergy += real[i] * real[i] + imag[i] * imag[i];
-        sumMagn += magn[i];
-        if (self->blockInd < END_STARTUP_SHORT) {
-            if (i >= kStartBand) {
-                tmpFloat2 = logf((float) i);
-                sum_log_i += tmpFloat2;
-                sum_log_i_square += tmpFloat2 * tmpFloat2;
-                tmpFloat1 = logf(magn[i]);
-                sum_log_magn += tmpFloat1;
-                sum_log_i_log_magn += tmpFloat2 * tmpFloat1;
-            }
+    FFT(self, winData, self->anaLen, self->magnLen, real, imag, magn, lmagn, 1, &signalEnergy, &sumMagn);
+    if (self->blockInd < END_STARTUP_SHORT) {
+        for (i = kStartBand; i < self->magnLen; i++) {
+            sum_log_i += self->log_lut[i];
+            sum_log_i_square += self->log_lut_sqr[i];
+            sum_log_magn += lmagn[i];
+            sum_log_i_log_magn += self->log_lut[i] * lmagn[i];
         }
     }
-    signalEnergy /= self->magnLen;
+    signalEnergy *= self->normMagnLen;
     self->signalEnergy = signalEnergy;
     self->sumMagn = sumMagn;
 
     // Quantile noise estimate.
-    NoiseEstimation(self, magn, noise);
+    NoiseEstimation(self, lmagn, noise);
+    const float norm = 1.0f / (self->blockInd + 1);
     // Compute simplified noise model during startup.
     if (self->blockInd < END_STARTUP_SHORT) {
         // Estimate White noise.
-        self->whiteNoiseLevel += sumMagn / self->magnLen * self->overdrive;
+        self->whiteNoiseLevel += sumMagn * self->normMagnLen * self->overdrive;
         // Estimate Pink noise parameters.
         tmpFloat1 = sum_log_i_square * (self->magnLen - kStartBand);
         tmpFloat1 -= (sum_log_i * sum_log_i);
-        tmpFloat2 =
-                (sum_log_i_square * sum_log_magn - sum_log_i * sum_log_i_log_magn);
+        tmpFloat2 = (sum_log_i_square * sum_log_magn - sum_log_i * sum_log_i_log_magn);
         tmpFloat3 = tmpFloat2 / tmpFloat1;
         // Constrain the estimated spectrum to be positive.
         if (tmpFloat3 < 0.f) {
@@ -1810,33 +1829,36 @@ void WebRtcNs_AnalyzeCore(NoiseSuppressionC *self, const int16_t *speechFrame) {
             tmpFloat3 = 1.f;
         }
         self->pinkNoiseExp += tmpFloat3;
-
-        // Calculate frequency independent parts of parametric noise estimate.
-        if (self->pinkNoiseExp > 0.f) {
-            // Use pink noise estimate.
-            parametric_num =
-                    expf(self->pinkNoiseNumerator / (float) (self->blockInd + 1));
-            parametric_num *= (float) (self->blockInd + 1);
-            parametric_exp = self->pinkNoiseExp / (float) (self->blockInd + 1);
-        }
-        for (i = 0; i < self->magnLen; i++) {
-            // Estimate the background noise using the white and pink noise
-            // parameters.
-            if (self->pinkNoiseExp == 0.f) {
-                // Use white noise estimate.
+        if (self->pinkNoiseExp == 0.f) {
+            for (i = 0; i < self->magnLen; i++) {
+                // Estimate the background noise using the white and pink noise
+                // parameters.
                 self->parametricNoise[i] = self->whiteNoiseLevel;
-            } else {
+                // Weight quantile noise with modeled noise.
+                noise[i] *= (self->blockInd);
+                tmpFloat2 = self->parametricNoise[i] * (END_STARTUP_SHORT - self->blockInd);
+                noise[i] += tmpFloat2 * norm;
+                noise[i] /= END_STARTUP_SHORT;
+            }
+        } else {
+            // Calculate frequency independent parts of parametric noise estimate.
+
+            // Use pink noise estimate.
+            parametric_num = expf(self->pinkNoiseNumerator * norm);
+            parametric_num *= (float) (self->blockInd + 1);
+            parametric_exp = self->pinkNoiseExp * norm;
+            for (i = 0; i < self->magnLen; i++) {
+                // Estimate the background noise using the white and pink noise
+                // parameters.
                 // Use pink noise estimate.
                 float use_band = (float) (i < kStartBand ? kStartBand : i);
-                self->parametricNoise[i] =
-                        parametric_num / powf(use_band, parametric_exp);
+                self->parametricNoise[i] = parametric_num / powf(use_band, parametric_exp);
+                // Weight quantile noise with modeled noise.
+                noise[i] *= (self->blockInd);
+                tmpFloat2 = self->parametricNoise[i] * (END_STARTUP_SHORT - self->blockInd);
+                noise[i] += tmpFloat2 * norm;
+                noise[i] /= END_STARTUP_SHORT;
             }
-            // Weight quantile noise with modeled noise.
-            noise[i] *= (self->blockInd);
-            tmpFloat2 =
-                    self->parametricNoise[i] * (END_STARTUP_SHORT - self->blockInd);
-            noise[i] += (tmpFloat2 / (float) (self->blockInd + 1));
-            noise[i] /= END_STARTUP_SHORT;
         }
     }
     // Compute average signal during END_STARTUP_LONG time:
@@ -1844,14 +1866,14 @@ void WebRtcNs_AnalyzeCore(NoiseSuppressionC *self, const int16_t *speechFrame) {
     if (self->blockInd < END_STARTUP_LONG) {
         self->featureData[5] *= self->blockInd;
         self->featureData[5] += signalEnergy;
-        self->featureData[5] /= (self->blockInd + 1);
+        self->featureData[5] *= norm;
     }
 
     // Post and prior SNR needed for SpeechNoiseProb.
-    ComputeSnr(self, magn, noise, snrLocPrior, snrLocPost);
+    ComputeSnr(self, magn, noise, snrLocPrior, logSnrLocPrior, snrLocPost);
 
-    FeatureUpdate(self, magn, updateParsFlag);
-    SpeechNoiseProb(self, self->speechProb, snrLocPrior, snrLocPost);
+    FeatureUpdate(self, magn, lmagn, updateParsFlag);
+    SpeechNoiseProb(self, self->speechProb, snrLocPrior, logSnrLocPrior, snrLocPost);
     UpdateNoiseEstimate(self, magn, noise);
 
     // Keep track of noise spectrum for next frame.
@@ -1911,9 +1933,7 @@ void WebRtcNs_ProcessCore(NoiseSuppressionC *self,
                          self->dataBufHB[i]);
         }
     }
-
-    Windowing(self->window, self->dataBuf, self->anaLen, winData);
-    energy1 = Energy(winData, self->anaLen);
+    energy1 = WindowingEnergy(self->window, self->dataBuf, self->anaLen, winData);
     if (energy1 == 0.0) {
         // Synthesize the special case of zero input.
         // Read out fully processed segment.
@@ -1941,7 +1961,7 @@ void WebRtcNs_ProcessCore(NoiseSuppressionC *self,
         return;
     }
 
-    FFT(self, winData, self->anaLen, self->magnLen, real, imag, magn);
+    FFT(self, winData, self->anaLen, self->magnLen, real, imag, magn, NULL, 0, NULL, NULL);
 
     if (self->blockInd < END_STARTUP_SHORT) {
         for (i = 0; i < self->magnLen; i++) {
@@ -1950,19 +1970,9 @@ void WebRtcNs_ProcessCore(NoiseSuppressionC *self,
     }
 
     ComputeDdBasedWienerFilter(self, magn, theFilter);
-
-    for (i = 0; i < self->magnLen; i++) {
-        // Flooring bottom.
-        if (theFilter[i] < self->denoiseBound) {
-            theFilter[i] = self->denoiseBound;
-        }
-        // Flooring top.
-        if (theFilter[i] > 1.f) {
-            theFilter[i] = 1.f;
-        }
-        if (self->blockInd < END_STARTUP_SHORT) {
-            theFilterTmp[i] =
-                    (self->initMagnEst[i] - self->overdrive * self->parametricNoise[i]);
+    if (self->blockInd < END_STARTUP_SHORT) {
+        for (i = 0; i < self->magnLen; i++) {
+            theFilterTmp[i] = (self->initMagnEst[i] - self->overdrive * self->parametricNoise[i]);
             theFilterTmp[i] /= (self->initMagnEst[i] + 0.0001f);
             // Flooring bottom.
             if (theFilterTmp[i] < self->denoiseBound) {
@@ -1977,11 +1987,26 @@ void WebRtcNs_ProcessCore(NoiseSuppressionC *self,
             theFilterTmp[i] *= (END_STARTUP_SHORT - self->blockInd);
             theFilter[i] += theFilterTmp[i];
             theFilter[i] /= (END_STARTUP_SHORT);
+            self->smooth[i] = theFilter[i];
+            real[i] *= self->smooth[i];
+            imag[i] *= self->smooth[i];
         }
-
-        self->smooth[i] = theFilter[i];
-        real[i] *= self->smooth[i];
-        imag[i] *= self->smooth[i];
+    } else {
+        for (i = 0; i < self->magnLen; i++) {
+            // Flooring bottom.
+            if (theFilter[i] < self->denoiseBound) {
+                theFilter[i] = self->denoiseBound;
+            }
+            // Flooring top.
+            if (theFilter[i] > 1.f) {
+                theFilter[i] = 1.f;
+                self->smooth[i] = theFilter[i];
+            } else {
+                self->smooth[i] = theFilter[i];
+                real[i] *= self->smooth[i];
+                imag[i] *= self->smooth[i];
+            }
+        }
     }
     // Keep track of |magn| spectrum for next frame.
     memcpy(self->magnPrevProcess, magn, sizeof(*magn) * self->magnLen);
@@ -2018,11 +2043,9 @@ void WebRtcNs_ProcessCore(NoiseSuppressionC *self,
                  (1.f - self->priorSpeechProb) * factor2;
     }  // Out of self->gainmap == 1.
 
-    Windowing(self->window, winData, self->anaLen, winData);
-
     // Synthesis.
     for (i = 0; i < self->anaLen; i++) {
-        self->syntBuf[i] += factor * winData[i];
+        self->syntBuf[i] += factor * winData[i] * self->window[i];
     }
     // Read out fully processed segment.
     for (i = self->windShift; i < self->blockLen + self->windShift; i++) {
@@ -2063,9 +2086,9 @@ void WebRtcNs_ProcessCore(NoiseSuppressionC *self,
         avgFilterGainHB = avgFilterGainHB / ((float) (deltaGainHB));
         avgProbSpeechHBTmp = 2.f * avgProbSpeechHB - 1.f;
         // Gain based on speech probability.
-        gainModHB = 0.5f * (1.f + tanhf(gainMapParHB * avgProbSpeechHBTmp));
+        gainModHB = 0.5f + 0.5f * tanhf(gainMapParHB * avgProbSpeechHBTmp);
         // Combine gain with low band gain.
-        float gainTimeDomainHB = 0.5f * gainModHB + 0.5f * avgFilterGainHB;
+        float gainTimeDomainHB = 0.5f * (gainModHB + avgFilterGainHB);
         if (avgProbSpeechHB >= 0.5f) {
             gainTimeDomainHB = 0.25f * gainModHB + 0.75f * avgFilterGainHB;
         }
@@ -2100,7 +2123,8 @@ NsHandle *WebRtcNs_Create() {
 }
 
 void WebRtcNs_Free(NsHandle *NS_inst) {
-    free(NS_inst);
+    if (NS_inst)
+        free(NS_inst);
 }
 
 int WebRtcNs_Init(NsHandle *NS_inst, uint32_t fs) {

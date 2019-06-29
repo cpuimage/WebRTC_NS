@@ -100,6 +100,7 @@ typedef struct NoiseSuppressionC_ {
     size_t windShift;
     size_t anaLen;
     size_t magnLen;
+    float normMagnLen;
     int aggrMode;
     const float *window;
     float analyzeBuf[ANAL_BLOCKL_MAX];
@@ -115,6 +116,8 @@ typedef struct NoiseSuppressionC_ {
     int updates;
     // Parameters for Wiener filter.
     float smooth[HALF_ANAL_BLOCKL];
+    float log_lut[HALF_ANAL_BLOCKL];
+    float log_lut_sqr[HALF_ANAL_BLOCKL];
     float overdrive;
     float denoiseBound;
     int gainmap;
